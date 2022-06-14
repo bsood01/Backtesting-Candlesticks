@@ -4,9 +4,10 @@ import pandas as pd
 import pandas_datareader.data as pdr
 from datetime import timedelta,datetime as dt
 import time
-import json
+import os
+import glob
 
-
+# threading 
 #takes in the array of stocks and returns a Dataframe associated with each in a dictionary
 def yahoo_data(symbol, date_from, date_to):
     
@@ -14,8 +15,32 @@ def yahoo_data(symbol, date_from, date_to):
     result={}
     for s in symbol:
         df = pdr.DataReader(s, 'yahoo', start=date_from, end=date_to)
+        #missing data
         #df['signal']=df['Open']*0
         result[s]=df
+    return result
+
+def csv_data(date_from):
+    path=os.getcwd()
+    path = path+ "\data_files"
+    all_files = glob.glob(os.path.join(path, "*.csv"))
+
+    col_list=["Date","Open","High","Low","Close","Volume"]
+    result={}
+    for f in all_files:
+        df = pd.read_csv(f,usecols=col_list)
+        #set date as index and make data frame after param date
+        df.set_index("Date",inplace = True)
+        df.index = pd.to_datetime(df.index)  
+        df=df[(df.index > date_from)]
+        #filling missing values using forward fill to avoid look-ahead bias
+        df.fillna(method="ffill")
+
+        #get the symbol for the dictionary to store data
+        file_name=f.split("\\")[-1]
+        symbol = file_name.split('.CSV')[0]
+        result[symbol]=df
+
     return result
 
 def backtest_stratergy(df):
@@ -23,10 +48,15 @@ def backtest_stratergy(df):
     test_dates=df.index.tolist()
     for date in test_dates:
         tmp=single_candlestick_indicators(df,date)
-        #if we found a signal
-        if tmp!=None:
+        #if we found a signal add it to our results dictinary
+        #No. of signals 
+        if tmp !=None:
             signals.update(tmp)
-    pretty(signals)
+    print(signals)
+    return 0
+
+def candlestick_indicators(df,date):
+
     return 0
 
 def single_candlestick_indicators(df,date):
@@ -36,51 +66,43 @@ def single_candlestick_indicators(df,date):
     ts=top_shadow(df,date)
     bs=bottom_shadow(df,date)
 
-    '''s1 = 'Nov 10 00:00:00 2020'
-    d1 = dt.strptime(s1, '%b %d %H:%M:%S %Y')
-    if d1==date:
-        print(rb,ts,bs)'''
-
     signal={}
     signal[date]={}
 
     if dragonfly_doji(rb,bs,ts):
-
+        # Symbol
         signal[date]["Indicator"]="Dragonfly Doji"
         #check if we have data for the next date
         index=df.index.get_loc(date) + 1
         if index < df.index.size:
+            #close of today
+            # stop loss is low of the day
             signal[date]["Entry Price"]=df.loc[df.index[index],'Open']
         else:
+            ## Assume no volatility, as close to end of day 
             signal[date]["Entry Price"]=None
+
+            #signal direction
+            #{"Pattern"}=reversal
+            #["Confirmation"]=0/1
+
         signal[date]["Signal"]="Long"
 
+        #check for the next 10 days
         signal = test_buy_indication(df,date,signal)
         return signal
 
-    if gravestone_doji(rb,bs,ts):
-        signal[date]["Indicator"]="Gravestone Doji"
-
-        #check if we have data for the next date
-        index=df.index.get_loc(date) + 1
-        if index < df.index.size:
-           signal[date]["Entry Price"]= df.loc[df.index[index],'Open']
-        else:
-            signal[date]["Entry Price"]=None
-
-        signal[date]["Signal"]="Short"
-
-        signal = test_sell_indication(df,date,signal)
-        return signal
-
     return None
+
 #test the long position indication for the next 10-days
 def test_buy_indication(df, indication_date, result_dict ):
 
+    #curent candles low
     stop_loss=result_dict[indication_date]["Entry Price"] * 0.95
     take_profit=result_dict[indication_date]["Entry Price"] * 1.1
 
     tmp_date= indication_date
+    #3 months, 75 cuttoff - conditional exit 
     for i in range(10):
         index=df.index.get_loc(tmp_date) + 1
         if index < df.index.size:
@@ -90,11 +112,20 @@ def test_buy_indication(df, indication_date, result_dict ):
             if df.loc[tmp_date,'High']>take_profit:
                 result_dict[indication_date]["ExitPrice"]=take_profit
                 result_dict[indication_date]["Conclusion"]="Win"
+                result_dict[indication_date]["Exit Date"]=tmp_date
                 return result_dict #we don't need to check further
+
+
+            #priority 
+            # cannot be stop loss. 
+            # open 
+            # percentage gain- distributed 
+            # days to exit for average return
 
             elif df.loc[tmp_date,'Low']<stop_loss:
                 result_dict[indication_date]["Exit Price"]=stop_loss
                 result_dict[indication_date]["Conclusion"]="Loss"
+                result_dict[indication_date]["Exit Date"]=tmp_date
                 return result_dict  #we don't need to check further
 
 
@@ -123,11 +154,13 @@ def test_sell_indication(df, indication_date, result_dict ):
             if df.loc[tmp_date,'High']>stop_loss:
                 result_dict[indication_date]["Exit Price"]=stop_loss
                 result_dict[indication_date]["Conclusion"]="Loss"
+                result_dict[indication_date]["Exit Date"]=tmp_date
                 return result_dict  #we don't need to check further
 
             elif df.loc[tmp_date,'Low']<take_profit:
                 result_dict[indication_date]["ExitPrice"]=take_profit
                 result_dict[indication_date]["Conclusion"]="Win"
+                result_dict[indication_date]["Exit Date"]=tmp_date
                 return result_dict #we don't need to check further
 
 
@@ -144,6 +177,10 @@ def test_sell_indication(df, indication_date, result_dict ):
 
 #returns true if dragonfly doji is idicated
 def dragonfly_doji(rb,bs,ts):
+    # Cannot be random 
+    # Trend- best fit line- updays vs down days - MA
+    # Date and DF
+
     if rb<0.10 and bs!=0 and (ts/bs)<0.15:
         return 1
 
@@ -207,7 +244,7 @@ def pretty(d, indent=0):
 
 def main():
     #a Dict with Data frames of all the stocks
-    stocks=yahoo_data(['HINDUNILVR.NS'], date_from = '2012-01-01',date_to=dt.today().strftime('%Y-%m-%d'))
+    stocks=csv_data(date_from='2012-01-01')
     for st in stocks:
         backtest_stratergy(stocks[st])
 
