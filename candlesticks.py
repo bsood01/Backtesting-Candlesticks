@@ -52,8 +52,8 @@ def backtest_stratergy(df):
         #No. of signals 
         if tmp !=None:
             signals.append(tmp)
-    for d in signals:
-        pretty(d)
+    #for d in signals:
+        #pretty(d)
     return pd.DataFrame(signals)
 
      
