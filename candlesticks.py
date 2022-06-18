@@ -1,4 +1,3 @@
-from turtle import up
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -16,6 +15,7 @@ def yahoo_data(symbol, date_from, date_to):
     result={}
     for s in symbol:
         df = pdr.DataReader(s, 'yahoo', start=date_from, end=date_to)
+        ##
         df.fillna(method="ffill")
         result[s]=df
     return result
@@ -79,6 +79,25 @@ def candlestick_indicators(df,date):
 
         return signal
 
+    elif gravestone_doji(df,date) and trend==1:
+        print(date)
+        signal["Date"]=date
+        signal["Indicator"]="Gravstone Doji"
+        signal["Reversal"]=True
+        signal["ConfirmationRequired"]=False
+        signal["NextCandle"]="NA"
+        signal["EntryPrice"]=df.loc[date]["Close"]
+        signal["TrendDirection"]="Up Trend"
+        signal["StopLoss"]=df.loc[date]["High"]
+        #2:1 ratio for profit and stoploss
+        signal["TakeProfit"]=signal["EntryPrice"]-2*(signal["StopLoss"]-signal["EntryPrice"])
+        signal["Position"]="Short"
+        test_short_indication(df,date,signal)
+
+        return signal
+
+
+
     return None
 def test_long_indication(df, indication_date, signal_dict ):
     tmp_date= indication_date
@@ -118,8 +137,43 @@ def test_long_indication(df, indication_date, signal_dict ):
     signal_dict["Win"]=signal_dict["ExitPrice"]>signal_dict["EntryPrice"]
     return signal_dict
 
-def test_short_indication():
+def test_short_indication(df, indication_date, signal_dict ):
+    tmp_date= indication_date
+    #3 months, 75 day cuttoff - conditional exit 
+    # percentage gain- distributed 
+    # days to exit for average return
+    for i in range(75):
+        index=df.index.get_loc(tmp_date) + 1
+        if index < df.index.size:
+            tmp_date=df.index[index]
+            if df.loc[tmp_date,'Open']>signal_dict["StopLoss"]:
+                signal_dict["ExitPrice"]=df.loc[tmp_date,'Open']
+                signal_dict["Win"]=False
+                signal_dict["ExitDate"]=tmp_date
+                return signal_dict
+            elif df.loc[tmp_date,'High']>signal_dict["StopLoss"]:
+                signal_dict["ExitPrice"]=signal_dict["StopLoss"]
+                signal_dict["Win"]=False
+                signal_dict["ExitDate"]=tmp_date
+                return signal_dict
+            elif df.loc[tmp_date,'Open']<signal_dict["TakeProfit"]:
+                signal_dict["ExitPrice"]=df.loc[tmp_date,'Open']
+                signal_dict["Win"]=True
+                signal_dict["ExitDate"]=tmp_date
+                return signal_dict
+            elif df.loc[tmp_date,'Low']<signal_dict["TakeProfit"]:
+                signal_dict["ExitPrice"]=signal_dict["TakeProfit"]
+                signal_dict["Win"]=True
+                signal_dict["ExitDate"]=tmp_date
+                return signal_dict
+        #we dont have further data
+        else:
+            return signal_dict
 
+    #exit after 75 days
+    signal_dict["ExitPrice"]=df.loc[tmp_date,'Close']
+    signal_dict["Win"]=signal_dict["ExitPrice"]<signal_dict["EntryPrice"]
+    return signal_dict
 
 
     return 0
@@ -187,41 +241,6 @@ def ema(df, period ):
     df["EMA"]=ema_list   
     return df
 
-#test the short position indication for the next 10-days
-def test_sell_indication(df, indication_date, result_dict ):
-    stop_loss=result_dict[indication_date]["Entry Price"] * 1.05
-    take_profit=result_dict[indication_date]["Entry Price"] * 0.9
-
-    tmp_date= indication_date
-    for i in range(10):
-        index=df.index.get_loc(tmp_date) + 1
-        if index < df.index.size:
-            tmp_date=df.index[index]
-
-            #check the next days highs and lows for exit condition
-            if df.loc[tmp_date,'High']>stop_loss:
-                result_dict[indication_date]["Exit Price"]=stop_loss
-                result_dict[indication_date]["Conclusion"]="Loss"
-                result_dict[indication_date]["Exit Date"]=tmp_date
-                return result_dict  #we don't need to check further
-
-            elif df.loc[tmp_date,'Low']<take_profit:
-                result_dict[indication_date]["ExitPrice"]=take_profit
-                result_dict[indication_date]["Conclusion"]="Win"
-                result_dict[indication_date]["Exit Date"]=tmp_date
-                return result_dict #we don't need to check further
-
-
-        # no further data to be checked index is past the data we have
-        else:
-            result_dict[indication_date]["Conclusion"]="Inconclusive"
-            return result_dict
-
-    # If we made it through 10 days without a sell signal or exitting
-    # The indication was inconclusive
-    result_dict[indication_date]["Conclusion"]="Inconclusive"
-    return result_dict
-
 def doji(df, date):
     rb = real_body(df,date)
     tl=total_length(df,date)
@@ -231,14 +250,10 @@ def doji(df, date):
 
 #returns true if dragonfly doji is idicated
 def dragonfly_doji(df, date):
-    # Cannot be random 
-    # Trend- best fit line- updays vs down days - MA
-    # Date and DF
 
     op=df.loc[date,'Open']
     cl=df.loc[date,'Close']
     hi=df.loc[date,'High']
-    lo=df.loc[date,'Low']
 
     #check for small top shadow
     df_doji= (hi-max(op,cl)<=total_length(df,date)*0.1)
@@ -249,12 +264,19 @@ def dragonfly_doji(df, date):
     return 0
 
 #returns true if gravestone doji is idicated
-def gravestone_doji(rb,bs,ts):
-    if rb<0.10 and ts!=0 and (bs/ts)<0.15:
+def gravestone_doji(df, date):
+
+    op=df.loc[date,'Open']
+    cl=df.loc[date,'Close']
+    lo=df.loc[date,'Low']
+
+    #check for small top shadow
+    gr_doji= (min(op,cl)-lo<=total_length(df,date)*0.1)
+
+    if doji(df,date) and gr_doji:
         return 1
 
     return 0
-
 
 # Return the real body of a particular date
 def real_body(data, date):
@@ -325,4 +347,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
