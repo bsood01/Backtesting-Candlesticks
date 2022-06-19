@@ -20,26 +20,29 @@ def yahoo_data(symbol, date_from, date_to):
         result[s]=df
     return result
 
-def csv_data(date_from):
+def csv_data(date_from, stock_list):
     path=os.getcwd()
-    path = path+ "\\data_files"
+    path = path+ "\\historical_data"
     all_files = glob.glob(os.path.join(path, "*.csv"))
 
     col_list=["Date","Open","High","Low","Close","Volume"]
     result={}
     for f in all_files:
-        df = pd.read_csv(f,usecols=col_list)
-        #set date as index and make data frame after param date
-        df.set_index("Date",inplace = True)
-        df.index = pd.to_datetime(df.index)  
-        df=df[(df.index > date_from)]
-        #filling missing values using forward fill to avoid look-ahead bias
-        df.fillna(method="ffill")
-
         #get the symbol for the dictionary to store data
         file_name=f.split("\\")[-1]
-        symbol = file_name.split('.CSV')[0]
-        result[symbol]=df
+        symbol = file_name.split('.csv')[0]
+        if symbol in stock_list:
+            print("hi")
+            df = pd.read_csv(f,usecols=col_list)
+            #set date as index and make data frame after param date
+            df.set_index("Date",inplace = True)
+            df.index = pd.to_datetime(df.index)  
+            df=df[(df.index > date_from)]
+            #filling missing values using forward fill to avoid look-ahead bias
+            df.fillna(method="ffill")
+
+            result[symbol]=df
+
 
     return result
 
@@ -80,7 +83,6 @@ def candlestick_indicators(df,date):
         return signal
 
     elif gravestone_doji(df,date) and trend==1:
-        print(date)
         signal["Date"]=date
         signal["Indicator"]="Gravstone Doji"
         signal["Reversal"]=True
@@ -327,12 +329,21 @@ def pretty(d, indent=0):
          print('\t' * (indent+1) + str(value))    
 
 def main():
+    '''df = pd.read_csv("allstocks.csv",encoding= 'unicode_escape')
+    stock_list=[]
+    for index, row in df.iterrows():
+        if row['Active']==True:
+            stock_list.append(row['NSESymbol'])
     #a Dict with Data frames of all the stocks
-    stocks=csv_data(date_from='2012-01-01')
+    stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)'''
+
+    stocks=yahoo_data(['HINDUNILVR.NS'], date_from = '2012-01-01',date_to=dt.today().strftime('%Y-%m-%d'))
+
     path=os.getcwd()
     path = path+ "\\backtest_results"
     if not os.path.exists(path):
         os.makedirs(path)
+    
     for symbol in stocks:
         #date_time_str = '22/06/12 00:00:00'
         #date_time_obj = dt.strptime(date_time_str, '%d/%m/%y %H:%M:%S')
@@ -341,7 +352,7 @@ def main():
         #stocks[symbol].iloc[2100:2300]['Close'].plot(label = 'TCS', figsize = (15,7))
         #stocks[symbol].iloc[2100:2300]['EMA'].plot(label = "Infosys")
         #plt.show()
-        backtest_stratergy(stocks[symbol]).to_csv(path+"\\"+symbol, encoding='utf-8', index=False)
+        backtest_stratergy(stocks[symbol]).to_csv(path+"\\"+symbol+".csv", encoding='utf-8', index=False)
 
     return 0
 
