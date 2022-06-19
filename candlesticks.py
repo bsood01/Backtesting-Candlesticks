@@ -32,7 +32,6 @@ def csv_data(date_from, stock_list):
         file_name=f.split("\\")[-1]
         symbol = file_name.split('.csv')[0]
         if symbol in stock_list:
-            print("hi")
             df = pd.read_csv(f,usecols=col_list)
             #set date as index and make data frame after param date
             df.set_index("Date",inplace = True)
