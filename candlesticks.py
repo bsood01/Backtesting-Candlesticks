@@ -6,6 +6,7 @@ from datetime import timedelta,datetime as dt
 import time
 import os
 import glob
+import threading
 
 
 # threading 
@@ -45,17 +46,17 @@ def csv_data(date_from, stock_list):
 
 
     return result
-
-def backtest_stratergy(stocks):
+#backtest for a single stock for the indicators
+def backtest_stratergy(df,symbol,signal_list):
     signals=[]
-    for symbol in stocks:
-        test_dates=stocks[symbol].index.tolist()
-        for date in test_dates:
-            tmp=candlestick_indicators(stocks[symbol],date,symbol)
-            #if we found a signal add it to our results dictinary
-            if tmp !=None:
-                signals.append(tmp)
-    return pd.DataFrame(signals)
+    test_dates=df.index.tolist()
+    for date in test_dates:
+        tmp=candlestick_indicators(df,date,symbol)
+        #if we found a signal add it to our results dictinary
+        if tmp !=None:
+            signals.append(tmp)
+    signals_list.extend(signals)
+    return 
 
      
 
@@ -73,11 +74,9 @@ def candlestick_indicators(df,date, symbol):
         signal["EntryPrice"]=df.loc[date]["Close"]
         signal["TrendDirection"]="Down Trend"
         signal["StopLoss"]=df.loc[date]["Low"]
-        ##signal and variat strategy
-        ##2:1 ratio variant 
-        #2:1 ratio for profit and stoploss
         signal["TakeProfit"]=signal["EntryPrice"]+2*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
+        signal["Variant"]=["SlopeTrend","2:1ProfitRatio","NoConfirmation","SL-Low"]
         test_long_indication(df,date,signal)
 
         return signal
@@ -91,10 +90,9 @@ def candlestick_indicators(df,date, symbol):
         signal["EntryPrice"]=df.loc[date]["Close"]
         signal["TrendDirection"]="Up Trend"
         signal["StopLoss"]=df.loc[date]["High"]
-        #2:1 ratio for profit and stoploss
         signal["TakeProfit"]=signal["EntryPrice"]-2*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
-        signal["Variant"]=""
+        signal["Variant"]=["SlopeTrend","2:1ProfitRatio","NoConfirmation","SL-High"]
         test_short_indication(df,date,signal)
 
         return signal
@@ -183,7 +181,7 @@ def test_short_indication(df, indication_date, signal_dict ):
     
 # Calculates trend based on updays vs downdays
 def up_down_trend(df,date):
-    cur_date=date
+    ccur_date=df.index[df.index.get_loc(date)-1]
     up_days=0
     down_days=0
     for i in range(10):
@@ -330,6 +328,9 @@ def pretty(d, indent=0):
       else:
          print('\t' * (indent+1) + str(value))    
 
+#global variable for threading
+signals_list=[]
+
 def main():
     #nifty 50
     #threads
@@ -339,16 +340,29 @@ def main():
     for index, row in df.iterrows():
         if row['N']==True:
             stock_list.append(row['NSESymbol'])'''
-
+    st=[]
+    for i in range(3,7):
+        st.append(stock_list[i])
     #a Dict with Data frames of all the stocks
-    stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)
+    start_time = time.time()
+    stocks=csv_data(date_from='2012-01-01', stock_list=st)
+    print("--- %s seconds ---" % (time.time() - start_time))
 
     path=os.getcwd()
     path = path+ "\\backtest_results"
     if not os.path.exists(path):
         os.makedirs(path)
-    
-    backtest_stratergy(stocks).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
+    start_time = time.time()
+    threads = []
+    for symbol in stocks:
+        thread = threading.Thread(target=backtest_stratergy,args=(stocks[symbol],symbol,signals_list))
+        threads.append(thread)
+        thread.start()
+    #wait for them to finish
+    for t in threads:
+        t.join()
+    print("--- %s seconds ---" % (time.time() - start_time))
+    pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
 
     return 0
 
