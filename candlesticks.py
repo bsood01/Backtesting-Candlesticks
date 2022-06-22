@@ -6,10 +6,8 @@ from datetime import timedelta,datetime as dt
 import time
 import os
 import glob
-import threading
+import multiprocessing
 
-
-# threading 
 #takes in the array of stocks and returns a Dataframe associated with each in a dictionary
 def yahoo_data(symbol, date_from, date_to):
     
@@ -47,7 +45,7 @@ def csv_data(date_from, stock_list):
 
     return result
 #backtest for a single stock for the indicators
-def backtest_stratergy(df,symbol,signal_list):
+def backtest_stratergy(df,symbol):
     signals=[]
     test_dates=df.index.tolist()
     for date in test_dates:
@@ -55,8 +53,8 @@ def backtest_stratergy(df,symbol,signal_list):
         #if we found a signal add it to our results dictinary
         if tmp !=None:
             signals.append(tmp)
-    signals_list.extend(signals)
-    return 
+    #print(signals_list)
+    return signals
 
      
 
@@ -328,42 +326,35 @@ def pretty(d, indent=0):
       else:
          print('\t' * (indent+1) + str(value))    
 
-#global variable for threading
-signals_list=[]
+#only the main procs writes to the signals_list
+def log_result(signals):
+    return signals_list.extend(signals)
 
+#global variable for multiprocessing
+signals_list=[]
 def main():
     #nifty 50
-    #threads
     df = pd.read_csv("nifty50list.csv",encoding= 'unicode_escape')
     stock_list=df["Symbol"].values.tolist()
-    '''df = pd.read_csv("allstocks.csv",encoding= 'unicode_escape')
-    for index, row in df.iterrows():
-        if row['N']==True:
-            stock_list.append(row['NSESymbol'])'''
-    st=[]
-    for i in range(3,7):
-        st.append(stock_list[i])
     #a Dict with Data frames of all the stocks
-    start_time = time.time()
-    stocks=csv_data(date_from='2012-01-01', stock_list=st)
-    print("--- %s seconds ---" % (time.time() - start_time))
+    stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)
 
     path=os.getcwd()
     path = path+ "\\backtest_results"
     if not os.path.exists(path):
         os.makedirs(path)
-    start_time = time.time()
-    threads = []
+    #start_time = time.time()
+    num_procs = multiprocessing.cpu_count()  
+    pool = multiprocessing.Pool(num_procs-3)
     for symbol in stocks:
-        thread = threading.Thread(target=backtest_stratergy,args=(stocks[symbol],symbol,signals_list))
-        threads.append(thread)
-        thread.start()
+        pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol),callback=log_result)
     #wait for them to finish
-    for t in threads:
-        t.join()
-    print("--- %s seconds ---" % (time.time() - start_time))
+    pool.close()
+    pool.join()
+    #print("--- %s seconds ---" % (time.time() - start_time))
+    
     pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
-
+    
     return 0
 
 if __name__ == '__main__':
