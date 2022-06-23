@@ -49,52 +49,67 @@ def backtest_stratergy(df,symbol):
     signals=[]
     test_dates=df.index.tolist()
     for date in test_dates:
-        tmp=candlestick_indicators(df,date,symbol)
-        #if we found a signal add it to our results dictinary
-        if tmp !=None:
-            signals.append(tmp)
-    #print(signals_list)
+        trend=line_trend(df,date,20)
+        if trend==0 and dragonfly_doji(df, date):
+            for i in range(6):
+                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji", "V"+str(i+1),(i%3)+1,i>3)
+                #if we found a signal add it to our results dictinary
+                if tmp!=None:
+                    signals.append(tmp)
+        elif trend==1 and gravestone_doji(df, date):
+            for i in range(6):
+                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji","V"+str(i+1),(i%3)+1,i>3)
+                #if we found a signal add it to our results dictinary
+                if tmp!=None:
+                    signals.append(tmp)
     return signals
 
      
 
-def candlestick_indicators(df,date, symbol):
+def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
 
     signal={}
     trend=line_trend(df,date,20)
     signal["Symbol"]=symbol
-    if trend==0 and dragonfly_doji(df, date):
+    if indicator=="Dragonfly Doji":
         signal["Date"]=date
         signal["Indicator"]="Dragonfly Doji"
-        signal["Reversal"]=True
-        signal["ConfirmationRequired"]=True
-        signal["NextCandle"]="HigherOpen"
-        signal["EntryPrice"]=df.loc[date]["Close"]
-        signal["TrendDirection"]="Down Trend"
+        if not con_req:
+            signal["EntryPrice"]=df.loc[date]["Close"]
+        #confirmation is required and check for higher open 
+        else:
+            next_date=df.index[df.index.get_loc(date)+1]
+            if df.loc[next_date]["Open"]>df.loc[date]["Close"]:
+                signal["EntryPrice"]=df.loc[next_date]["Open"]
+            else:
+                return None
         signal["StopLoss"]=df.loc[date]["Low"]
-        signal["TakeProfit"]=signal["EntryPrice"]+2*(signal["EntryPrice"]-signal["StopLoss"])
+        signal["TakeProfit"]=signal["EntryPrice"]+pt_ratio*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
-        signal["Variant"]=["SlopeTrend","2:1ProfitRatio","NoConfirmation","SL-Low"]
+        signal["Variant"]=variant
         test_long_indication(df,date,signal)
-
+        signal["ReturnsPercent"]=(signal["ExitPrice"]-signal["EntryPrice"])/signal["EntryPrice"]
         return signal
 
-    elif trend==1 and gravestone_doji(df,date):
+    elif indicator =="Gravestone Doji":
         signal["Date"]=date
         signal["Indicator"]="Gravstone Doji"
-        signal["Reversal"]=True
-        signal["ConfirmationRequired"]=True
-        signal["NextCandle"]="LowerOpen"
-        signal["EntryPrice"]=df.loc[date]["Close"]
-        signal["TrendDirection"]="Up Trend"
+        if not con_req:
+            signal["EntryPrice"]=df.loc[date]["Close"]
+        #confirmation is required and check for lower open 
+        else:
+            next_date=df.index[df.index.get_loc(date)+1]
+            if df.loc[next_date]["Open"]<df.loc[date]["Close"]:
+                signal["EntryPrice"]=df.loc[next_date]["Open"]
+            else:
+                return None
         signal["StopLoss"]=df.loc[date]["High"]
-        signal["TakeProfit"]=signal["EntryPrice"]-2*(signal["StopLoss"]-signal["EntryPrice"])
+        signal["TakeProfit"]=signal["EntryPrice"]-pt_ratio*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
-        signal["Variant"]=["SlopeTrend","2:1ProfitRatio","NoConfirmation","SL-High"]
+        signal["Variant"]=variant
         test_short_indication(df,date,signal)
-
+        signal["ReturnsPercent"]=(signal["EntryPrice"]-signal["ExitPrice"])/signal["EntryPrice"]
         return signal
-
     return None
 
 def test_long_indication(df, indication_date, signal_dict ):
@@ -127,7 +142,10 @@ def test_long_indication(df, indication_date, signal_dict ):
                 signal_dict["ExitDate"]=tmp_date
                 return signal_dict
         #we dont have further data
-        else:
+        else: 
+            signal_dict["ExitPrice"]=df.loc[tmp_date,'Close']
+            signal_dict["Win"]=signal_dict["ExitPrice"]>signal_dict["EntryPrice"]
+            signal_dict["ExitDate"]=tmp_date
             return signal_dict
 
     #exit after 75 days
@@ -167,6 +185,9 @@ def test_short_indication(df, indication_date, signal_dict ):
                 return signal_dict
         #we dont have further data
         else:
+            signal_dict["ExitPrice"]=df.loc[tmp_date,'Close']
+            signal_dict["Win"]=signal_dict["ExitPrice"]>signal_dict["EntryPrice"]
+            signal_dict["ExitDate"]=tmp_date
             return signal_dict
 
     #exit after 75 days
@@ -174,8 +195,6 @@ def test_short_indication(df, indication_date, signal_dict ):
     signal_dict["Win"]=signal_dict["ExitPrice"]<signal_dict["EntryPrice"]
     return signal_dict
 
-
-    return 0
     
 # Calculates trend based on updays vs downdays
 def up_down_trend(df,date):
@@ -327,8 +346,9 @@ def pretty(d, indent=0):
          print('\t' * (indent+1) + str(value))    
 
 #only the main procs writes to the signals_list
-def log_result(signals):
+def log_result(signals): 
     return signals_list.extend(signals)
+   
 
 #global variable for multiprocessing
 signals_list=[]
@@ -336,6 +356,10 @@ def main():
     #nifty 50
     df = pd.read_csv("nifty50list.csv",encoding= 'unicode_escape')
     stock_list=df["Symbol"].values.tolist()
+    st=[]
+    for i in range(3,5):
+        st.append(stock_list[i])
+
     #a Dict with Data frames of all the stocks
     stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)
 
@@ -343,16 +367,23 @@ def main():
     path = path+ "\\backtest_results"
     if not os.path.exists(path):
         os.makedirs(path)
+    variants=[{"Variant":"V1","Confirmation":False,"PTWinRatio":"1:1","Trend":"Slope"},
+    {"Variant":"V2","Confirmation":False,"PTWinRatio":"2:1","Trend":"Slope"},
+    {"Variant":"V3","Confirmation":False,"PTWinRatio":"3:1","Trend":"Slope"},
+    {"Variant":"V4","Confirmation":True,"PTWinRatio":"1:1","Trend":"Slope"},
+    {"Variant":"V5","Confirmation":True,"PTWinRatio":"2:1","Trend":"Slope"},
+    {"Variant":"V6","Confirmation":True,"PTWinRatio":"3:1","Trend":"Slope"}]
+    pd.DataFrame(variants).to_csv(path+"\\variant_info.csv", encoding='utf-8', index=False)
+
     #start_time = time.time()
     num_procs = multiprocessing.cpu_count()  
-    pool = multiprocessing.Pool(num_procs-3)
+    pool = multiprocessing.Pool(num_procs-2)
     for symbol in stocks:
         pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol),callback=log_result)
     #wait for them to finish
     pool.close()
     pool.join()
     #print("--- %s seconds ---" % (time.time() - start_time))
-    
     pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
     
     return 0
