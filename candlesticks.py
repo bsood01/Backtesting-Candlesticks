@@ -52,17 +52,18 @@ def backtest_stratergy(df,symbol):
         trend=line_trend(df,date,20)
         if trend==0 and dragonfly_doji(df, date):
             for i in range(6):
-                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji", "V"+str(i+1),(i%3)+1,i>3)
+                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji", "V"+str(i+1),(i%3)+1,i>=3)
                 #if we found a signal add it to our results dictinary
                 if tmp!=None:
                     signals.append(tmp)
         elif trend==1 and gravestone_doji(df, date):
             for i in range(6):
-                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji","V"+str(i+1),(i%3)+1,i>3)
+                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji","V"+str(i+1),(i%3)+1,i>=3)
                 #if we found a signal add it to our results dictinary
                 if tmp!=None:
                     signals.append(tmp)
     return signals
+
 
      
 
@@ -76,14 +77,16 @@ def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
         signal["Indicator"]="Dragonfly Doji"
         if not con_req:
             signal["EntryPrice"]=df.loc[date]["Close"]
+            signal["StopLoss"]=df.loc[date]["Low"]
         #confirmation is required and check for higher open 
         else:
             next_date=df.index[df.index.get_loc(date)+1]
             if df.loc[next_date]["Open"]>df.loc[date]["Close"]:
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
+                signal["StopLoss"]=df.loc[next_date]["Low"]
             else:
                 return None
-        signal["StopLoss"]=df.loc[date]["Low"]
+
         signal["TakeProfit"]=signal["EntryPrice"]+pt_ratio*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
         signal["Variant"]=variant
@@ -96,14 +99,15 @@ def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
         signal["Indicator"]="Gravstone Doji"
         if not con_req:
             signal["EntryPrice"]=df.loc[date]["Close"]
+            signal["StopLoss"]=df.loc[date]["High"]
         #confirmation is required and check for lower open 
         else:
             next_date=df.index[df.index.get_loc(date)+1]
             if df.loc[next_date]["Open"]<df.loc[date]["Close"]:
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
+                signal["StopLoss"]=df.loc[next_date]["High"]
             else:
                 return None
-        signal["StopLoss"]=df.loc[date]["High"]
         signal["TakeProfit"]=signal["EntryPrice"]-pt_ratio*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
         signal["Variant"]=variant
@@ -350,6 +354,53 @@ def log_result(signals):
     return signals_list.extend(signals)
    
 
+def calculate_metrics(signals_list):
+    df  = [None] * 6
+    gs  = [None] * 6
+    for s in signals_list:
+        variant_num=int(s["Variant"][1])
+        index=variant_num-1
+        if s["Indicator"]=="Dragonfly Doji":
+
+            if df[index]!=None:
+                #((AVG(old)*N(old)+X)/(N(old)+1)
+                old_avg=df[index]["AvgReturn"]
+                old_num=df[index]["TotalSignals"]
+                df[index]["AvgReturn"]=((old_avg*old_num)+s["ReturnsPercent"])/(old_num+1)
+                df[index]["TotalSignals"]+=1
+                if s["Win"]:
+                    df[index]["NumWins"]+=1
+            else:
+                df[index]={"Indicator":"Dragonfly Doji",
+                           "Variant":s["Variant"],
+                           "NumWins":int(s["Win"]),
+                           "TotalSignals":1,
+                           "AvgReturn":s["ReturnsPercent"]
+                        }
+
+        else:
+            if gs[index]!=None:
+                #((AVG(old)*N(old)+X)/(N(old)+1)
+                old_avg=gs[index]["AvgReturn"]
+                old_num=gs[index]["TotalSignals"]
+                gs[index]["AvgReturn"]=((old_avg*old_num)+s["ReturnsPercent"])/(old_num+1)
+                gs[index]["TotalSignals"]+=1
+                if s["Win"]:
+                    gs[index]["NumWins"]+=1
+            else:
+                gs[index]={"Indicator":"Gravestone Doji",
+                           "Variant":s["Variant"],
+                           "NumWins":int(s["Win"]),
+                           "TotalSignals":1,
+                           "AvgReturn":s["ReturnsPercent"]
+                        }
+    metrics_list=df+gs
+    for m in metrics_list:
+        m["WinRatio"]=m["NumWins"]/m["TotalSignals"]
+
+    return metrics_list
+
+
 #global variable for multiprocessing
 signals_list=[]
 def main():
@@ -384,7 +435,8 @@ def main():
     pool.close()
     pool.join()
     #print("--- %s seconds ---" % (time.time() - start_time))
-    pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
+    #pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
+    pd.DataFrame(calculate_metrics(signals_list)).to_csv(path+"\\metrics.csv", encoding='utf-8', index=False)
     
     return 0
 
