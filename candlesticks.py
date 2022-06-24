@@ -45,21 +45,23 @@ def csv_data(date_from, stock_list):
 
     return result
 #backtest for a single stock for the indicators
-def backtest_stratergy(df,symbol):
+def backtest_stratergy(df,symbol,variants_list):
     signals=[]
     test_dates=df.index.tolist()
     for date in test_dates:
         trend=line_trend(df,date,20)
         if trend==0 and dragonfly_doji(df, date):
-            for i in range(6):
-                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji", "V"+str(i+1),(i%3)+1,i>=3)
+            for v in variants_list:
+                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji",
+                        v["Variant"],v["PTWinRatio"],v["Confirmation"])
+
                 #if we found a signal add it to our results dictinary
                 if tmp!=None:
                     signals.append(tmp)
         elif trend==1 and gravestone_doji(df, date):
-            for i in range(6):
-                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji","V"+str(i+1),(i%3)+1,i>=3)
-                #if we found a signal add it to our results dictinary
+            for v in variants_list:
+                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji",
+                        v["Variant"],v["PTWinRatio"],v["Confirmation"])
                 if tmp!=None:
                     signals.append(tmp)
     return signals
@@ -77,16 +79,15 @@ def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
         signal["Indicator"]="Dragonfly Doji"
         if not con_req:
             signal["EntryPrice"]=df.loc[date]["Close"]
-            signal["StopLoss"]=df.loc[date]["Low"]
+            
         #confirmation is required and check for higher open 
         else:
             next_date=df.index[df.index.get_loc(date)+1]
             if df.loc[next_date]["Open"]>df.loc[date]["Close"]:
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
-                signal["StopLoss"]=df.loc[next_date]["Low"]
             else:
                 return None
-
+        signal["StopLoss"]=df.loc[date]["Low"]
         signal["TakeProfit"]=signal["EntryPrice"]+pt_ratio*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
         signal["Variant"]=variant
@@ -99,15 +100,14 @@ def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
         signal["Indicator"]="Gravstone Doji"
         if not con_req:
             signal["EntryPrice"]=df.loc[date]["Close"]
-            signal["StopLoss"]=df.loc[date]["High"]
         #confirmation is required and check for lower open 
         else:
             next_date=df.index[df.index.get_loc(date)+1]
             if df.loc[next_date]["Open"]<df.loc[date]["Close"]:
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
-                signal["StopLoss"]=df.loc[next_date]["High"]
             else:
                 return None
+        signal["StopLoss"]=df.loc[date]["High"]
         signal["TakeProfit"]=signal["EntryPrice"]-pt_ratio*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
         signal["Variant"]=variant
@@ -355,10 +355,10 @@ def log_result(signals):
    
 
 def calculate_metrics(signals_list):
-    df  = [None] * 6
-    gs  = [None] * 6
+    df  = [None] * 10
+    gs  = [None] * 10
     for s in signals_list:
-        variant_num=int(s["Variant"][1])
+        variant_num=int(s["Variant"][1:])
         index=variant_num-1
         if s["Indicator"]=="Dragonfly Doji":
 
@@ -418,24 +418,28 @@ def main():
     path = path+ "\\backtest_results"
     if not os.path.exists(path):
         os.makedirs(path)
-    variants=[{"Variant":"V1","Confirmation":False,"PTWinRatio":"1:1","Trend":"Slope"},
-    {"Variant":"V2","Confirmation":False,"PTWinRatio":"2:1","Trend":"Slope"},
-    {"Variant":"V3","Confirmation":False,"PTWinRatio":"3:1","Trend":"Slope"},
-    {"Variant":"V4","Confirmation":True,"PTWinRatio":"1:1","Trend":"Slope"},
-    {"Variant":"V5","Confirmation":True,"PTWinRatio":"2:1","Trend":"Slope"},
-    {"Variant":"V6","Confirmation":True,"PTWinRatio":"3:1","Trend":"Slope"}]
+    variants=[{"Variant":"V1","Confirmation":False,"PTWinRatio":1,"Trend":"Slope"},
+    {"Variant":"V2","Confirmation":False,"PTWinRatio":2,"Trend":"Slope"},
+    {"Variant":"V3","Confirmation":False,"PTWinRatio":3,"Trend":"Slope"},
+    {"Variant":"V4","Confirmation":False,"PTWinRatio":(1/2),"Trend":"Slope"},
+    {"Variant":"V5","Confirmation":False,"PTWinRatio":(1/3),"Trend":"Slope"},
+    {"Variant":"V6","Confirmation":True,"PTWinRatio":1,"Trend":"Slope"},
+    {"Variant":"V7","Confirmation":True,"PTWinRatio":2,"Trend":"Slope"},
+    {"Variant":"V8","Confirmation":True,"PTWinRatio":3,"Trend":"Slope"},
+    {"Variant":"V9","Confirmation":True,"PTWinRatio":(1/2),"Trend":"Slope"},
+    {"Variant":"V10","Confirmation":True,"PTWinRatio":(1/3),"Trend":"Slope"}]
     pd.DataFrame(variants).to_csv(path+"\\variant_info.csv", encoding='utf-8', index=False)
 
     #start_time = time.time()
     num_procs = multiprocessing.cpu_count()  
     pool = multiprocessing.Pool(num_procs-2)
     for symbol in stocks:
-        pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol),callback=log_result)
+        pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol,variants),callback=log_result)
     #wait for them to finish
     pool.close()
     pool.join()
     #print("--- %s seconds ---" % (time.time() - start_time))
-    #pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
+    pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
     pd.DataFrame(calculate_metrics(signals_list)).to_csv(path+"\\metrics.csv", encoding='utf-8', index=False)
     
     return 0
