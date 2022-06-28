@@ -45,34 +45,40 @@ def csv_data(date_from, stock_list):
 
     return result
 #backtest for a single stock for the indicators
-def backtest_stratergy(df,symbol,variants_list):
-    signals=[]
+def backtest_stratergy(df,symbol,variants_dict):
+    all_signals=[]
     test_dates=df.index.tolist()
-    for date in test_dates:
-        trend=line_trend(df,date,20)
-        if trend==0 and dragonfly_doji(df, date):
-            for v in variants_list:
-                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji",
-                        v["Variant"],v["PTWinRatio"],v["Confirmation"])
+    for shadow in variants_dict["MaxShadow"]:
+        for body in variants_dict["MaxBody"]:
+            for days in variants_dict["SlopeDays"]:
+                signals=[]
+                for date in test_dates:
+                    trend=line_trend(df,date,days)
+                    if trend==0 and dragonfly_doji(df,date,shadow,body):
+                        for pt_ratio in variants_dict["PTWinRatio"]:
+                            for confirm in  variants_dict["Confirmation"]:
+                                tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji",
+                                    pt_ratio,confirm)
 
-                #if we found a signal add it to our results dictinary
-                if tmp!=None:
-                    signals.append(tmp)
-        elif trend==1 and gravestone_doji(df, date):
-            for v in variants_list:
-                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji",
-                        v["Variant"],v["PTWinRatio"],v["Confirmation"])
-                if tmp!=None:
-                    signals.append(tmp)
-    return signals
+                            #if we found a signal add it to our results dictinary
+                                if tmp!=None:
+                                    signals.append(tmp)
+                    elif trend==1 and gravestone_doji(df,date,shadow,body):
+                        for pt_ratio in variants_dict["PTWinRatio"]:
+                            for confirm in  variants_dict["Confirmation"]:
+                                tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji",
+                                    pt_ratio,confirm)
+                                if tmp!=None:
+                                    signals.append(tmp)
+                all_signals.append(signals)
+    return all_signals
 
 
      
 
-def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
+def candlestick_indicators(df,date,symbol,indicator, pt_ratio,con_req):
 
     signal={}
-    trend=line_trend(df,date,20)
     signal["Symbol"]=symbol
     if indicator=="Dragonfly Doji":
         signal["Date"]=date
@@ -90,7 +96,6 @@ def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
         signal["StopLoss"]=df.loc[date]["Low"]
         signal["TakeProfit"]=signal["EntryPrice"]+pt_ratio*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
-        signal["Variant"]=variant
         test_long_indication(df,date,signal)
         signal["ReturnsPercent"]=(signal["ExitPrice"]-signal["EntryPrice"])/signal["EntryPrice"]
         return signal
@@ -110,7 +115,6 @@ def candlestick_indicators(df,date,symbol,indicator, variant, pt_ratio,con_req):
         signal["StopLoss"]=df.loc[date]["High"]
         signal["TakeProfit"]=signal["EntryPrice"]-pt_ratio*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
-        signal["Variant"]=variant
         test_short_indication(df,date,signal)
         signal["ReturnsPercent"]=(signal["EntryPrice"]-signal["ExitPrice"])/signal["EntryPrice"]
         return signal
@@ -263,40 +267,40 @@ def ema(df, period ):
     df["EMA"]=ema_list   
     return df
 
-def doji(df, date):
+def doji(df, date, max_body):
     rb = real_body(df,date)
     tl=total_length(df,date)
-    if rb<0.1*tl:
+    if rb<max_body*tl:
         return 1 
     return 0 
 
 #returns true if dragonfly doji is idicated
-def dragonfly_doji(df, date):
+def dragonfly_doji(df, date, max_shadow, max_body):
 
     op=df.loc[date,'Open']
     cl=df.loc[date,'Close']
     hi=df.loc[date,'High']
 
     #check for small top shadow
-    df_doji= (hi-max(op,cl)<=total_length(df,date)*0.1)
+    df_doji= (hi-max(op,cl)<=total_length(df,date)*max_shadow)
 
     #and opperator
-    if df_doji and doji(df,date):
+    if df_doji and doji(df,date,max_body):
         return 1
 
     return 0
 
 #returns true if gravestone doji is idicated
-def gravestone_doji(df, date):
+def gravestone_doji(df, date, max_shadow, max_body):
 
     op=df.loc[date,'Open']
     cl=df.loc[date,'Close']
     lo=df.loc[date,'Low']
 
     #check for small top shadow
-    gr_doji= (min(op,cl)-lo<=total_length(df,date)*0.1)
+    gr_doji= (min(op,cl)-lo<=total_length(df,date)*max_shadow)
 
-    if   gr_doji and doji(df,date):
+    if   gr_doji and doji(df,date,max_body):
         return 1
 
     return 0
@@ -408,39 +412,37 @@ def main():
     df = pd.read_csv("nifty50list.csv",encoding= 'unicode_escape')
     stock_list=df["Symbol"].values.tolist()
     st=[]
-    for i in range(3,5):
+    for i in range(3,4):
         st.append(stock_list[i])
 
     #a Dict with Data frames of all the stocks
-    stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)
+    stocks=csv_data(date_from='2012-01-01', stock_list=st)
 
     path=os.getcwd()
     path = path+ "\\backtest_results"
     if not os.path.exists(path):
         os.makedirs(path)
-    variants=[{"Variant":"V1","Confirmation":False,"PTWinRatio":1,"Trend":"Slope"},
-    {"Variant":"V2","Confirmation":False,"PTWinRatio":2,"Trend":"Slope"},
-    {"Variant":"V3","Confirmation":False,"PTWinRatio":3,"Trend":"Slope"},
-    {"Variant":"V4","Confirmation":False,"PTWinRatio":(1/2),"Trend":"Slope"},
-    {"Variant":"V5","Confirmation":False,"PTWinRatio":(1/3),"Trend":"Slope"},
-    {"Variant":"V6","Confirmation":True,"PTWinRatio":1,"Trend":"Slope"},
-    {"Variant":"V7","Confirmation":True,"PTWinRatio":2,"Trend":"Slope"},
-    {"Variant":"V8","Confirmation":True,"PTWinRatio":3,"Trend":"Slope"},
-    {"Variant":"V9","Confirmation":True,"PTWinRatio":(1/2),"Trend":"Slope"},
-    {"Variant":"V10","Confirmation":True,"PTWinRatio":(1/3),"Trend":"Slope"}]
-    pd.DataFrame(variants).to_csv(path+"\\variant_info.csv", encoding='utf-8', index=False)
+    variants={"PTWinRatio":[1,2,3,1/2,1/3],
+              "Confirmation":[True,False],
+              "SlopeDays":[5,10,15,20,30],
+              "MaxShadow":[0.05,0.075,0.1,0.125,0.15],
+              "MaxBody":[0.05,0.075,0.1,0.125,0.15]
+    }
 
     #start_time = time.time()
-    num_procs = multiprocessing.cpu_count()  
+    '''num_procs = multiprocessing.cpu_count()  
     pool = multiprocessing.Pool(num_procs-2)
     for symbol in stocks:
         pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol,variants),callback=log_result)
     #wait for them to finish
     pool.close()
-    pool.join()
+    pool.join()'''
+    for symbol in stocks:
+        signals_list.extend(backtest_stratergy(stocks[symbol],symbol,variants))
     #print("--- %s seconds ---" % (time.time() - start_time))
-    pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
-    pd.DataFrame(calculate_metrics(signals_list)).to_csv(path+"\\metrics.csv", encoding='utf-8', index=False)
+    print(signals_list)
+    #pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
+    #pd.DataFrame(calculate_metrics(signals_list)).to_csv(path+"\\metrics.csv", encoding='utf-8', index=False)
     
     return 0
 
