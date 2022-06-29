@@ -7,6 +7,11 @@ import time
 import os
 import glob
 import multiprocessing
+import statistics
+
+from setuptools import sic
+
+slope_days=15
 
 #takes in the array of stocks and returns a Dataframe associated with each in a dictionary
 def yahoo_data(symbol, date_from, date_to):
@@ -46,37 +51,45 @@ def csv_data(date_from, stock_list):
     return result
 #backtest for a single stock for the indicators
 def backtest_stratergy(df,symbol,variants_dict):
-    all_signals=[]
+    signals=[]
     test_dates=df.index.tolist()
-    for shadow in variants_dict["MaxShadow"]:
-        for body in variants_dict["MaxBody"]:
-            for days in variants_dict["SlopeDays"]:
-                signals=[]
-                for date in test_dates:
-                    trend=line_trend(df,date,days)
-                    if trend==0 and dragonfly_doji(df,date,shadow,body):
-                        for pt_ratio in variants_dict["PTWinRatio"]:
+    for date in test_dates:
+        for shadow in variants_dict["MaxShadow"]:
+            for body in variants_dict["MaxBody"]:
+                trend=line_trend(df,date,slope_days)
+                if trend==0 and dragonfly_doji(df,date,shadow,body):
+                    for pt_ratio in variants_dict["PTWinRatio"]:
+                        for sl in variants_dict["SLAdjuster"]:
                             for confirm in  variants_dict["Confirmation"]:
                                 tmp=candlestick_indicators(df,date,symbol,"Dragonfly Doji",
-                                    pt_ratio,confirm)
-
-                            #if we found a signal add it to our results dictinary
+                                    pt_ratio,sl,confirm)
+                                #if we found a signal add it to our results dictinary
                                 if tmp!=None:
+                                    tmp["MaxShadow"]=shadow
+                                    tmp["MaxBody"]=body
+                                    tmp["PTWinRatio"]=pt_ratio
+                                    tmp["SLRatio"]=sl
+                                    tmp["Confirmation"]=confirm
                                     signals.append(tmp)
-                    elif trend==1 and gravestone_doji(df,date,shadow,body):
-                        for pt_ratio in variants_dict["PTWinRatio"]:
+                elif trend==1 and gravestone_doji(df,date,shadow,body):
+                    for pt_ratio in variants_dict["PTWinRatio"]:
+                        for sl in variants_dict["SLAdjuster"]:
                             for confirm in  variants_dict["Confirmation"]:
                                 tmp=candlestick_indicators(df,date,symbol,"Gravestone Doji",
-                                    pt_ratio,confirm)
+                                    pt_ratio,sl,confirm)
                                 if tmp!=None:
+                                    tmp["MaxShadow"]=shadow
+                                    tmp["MaxBody"]=body
+                                    tmp["PTWinRatio"]=pt_ratio
+                                    tmp["SLRatio"]=sl
+                                    tmp["Confirmation"]=confirm
                                     signals.append(tmp)
-                all_signals.append(signals)
-    return all_signals
 
+    return signals
 
      
 
-def candlestick_indicators(df,date,symbol,indicator, pt_ratio,con_req):
+def candlestick_indicators(df,date,symbol,indicator, pt_ratio,sl_ratio,con_req):
 
     signal={}
     signal["Symbol"]=symbol
@@ -93,7 +106,7 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,con_req):
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
             else:
                 return None
-        signal["StopLoss"]=df.loc[date]["Low"]
+        signal["StopLoss"]=df.loc[date]["Low"]*(100-sl_ratio)
         signal["TakeProfit"]=signal["EntryPrice"]+pt_ratio*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
         test_long_indication(df,date,signal)
@@ -112,7 +125,7 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,con_req):
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
             else:
                 return None
-        signal["StopLoss"]=df.loc[date]["High"]
+        signal["StopLoss"]=df.loc[date]["High"]*(100+sl_ratio)
         signal["TakeProfit"]=signal["EntryPrice"]-pt_ratio*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
         test_short_indication(df,date,signal)
@@ -358,51 +371,51 @@ def log_result(signals):
     return signals_list.extend(signals)
    
 
-def calculate_metrics(signals_list):
-    df  = [None] * 10
-    gs  = [None] * 10
-    for s in signals_list:
-        variant_num=int(s["Variant"][1:])
-        index=variant_num-1
-        if s["Indicator"]=="Dragonfly Doji":
-
-            if df[index]!=None:
-                #((AVG(old)*N(old)+X)/(N(old)+1)
-                old_avg=df[index]["AvgReturn"]
-                old_num=df[index]["TotalSignals"]
-                df[index]["AvgReturn"]=((old_avg*old_num)+s["ReturnsPercent"])/(old_num+1)
-                df[index]["TotalSignals"]+=1
-                if s["Win"]:
-                    df[index]["NumWins"]+=1
-            else:
-                df[index]={"Indicator":"Dragonfly Doji",
-                           "Variant":s["Variant"],
-                           "NumWins":int(s["Win"]),
-                           "TotalSignals":1,
-                           "AvgReturn":s["ReturnsPercent"]
+def calculate_metrics(signals_list, variants_dict):
+    results_dict={}
+    
+    for shadow in variants_dict["MaxShadow"]:
+        for body in variants_dict["MaxBody"]:
+            for pt_ratio in variants_dict["PTWinRatio"]:
+                for sl in variants_dict["SLAdjuster"]:
+                    for confirm in  variants_dict["Confirmation"]:
+                        variant=str(shadow)+"/"+str(body)+"/"+str(pt_ratio)+"/"+str(sl)+"/"+str(confirm)+"/"+"Dragonfly Doji"
+                        results_dict[variant]={"NumWins":0,
+                                            "TotalSignals":0,
+                                            "Returns":[]
                         }
-
+                        variant=str(shadow)+"/"+str(body)+"/"+str(pt_ratio)+"/"+str(sl)+"/"+str(confirm)+"/"+"Gravestone Doji"
+                        results_dict[variant]={"NumWins":0,
+                                        "TotalSignals":0,
+                                        "Returns":[]
+                        }
+    for signal in signals_list:
+        variant=str(signal["MaxShadow"])+"/"+str(signal["MaxBody"])+"/"+\
+            str(signal["PTWinRatio"])+"/"+str(signal["SLRatio"])+"/"+str(signal["Confirmation"])+"/"+signal["Indicator"]
+        if variant in results_dict:
+            if signal["Win"]:
+                results_dict[variant]["NumWins"]+=1
+            results_dict[variant]["TotalSignals"]+=1
+            results_dict[variant]["Returns"].append(signal["ReturnsPercent"])
+                
+    for variant in results_dict:
+        if len(results_dict[variant]["Returns"])>=2:
+            results_dict[variant]["AvgReturn"]=statistics.mean(results_dict[variant]["Returns"])
+            results_dict[variant]["Median"]=statistics.median(results_dict[variant]["Returns"])
+            results_dict[variant]["StdDev"]=statistics.stdev(results_dict[variant]["Returns"])
+            results_dict[variant]["WinRatio"]=results_dict[variant]["NumWins"]/results_dict[variant]["TotalSignals"]
+            results_dict[variant]["MaxWin"]=max(results_dict[variant]["Returns"])
+            results_dict[variant]["MaxLoss"]=min(results_dict[variant]["Returns"])
         else:
-            if gs[index]!=None:
-                #((AVG(old)*N(old)+X)/(N(old)+1)
-                old_avg=gs[index]["AvgReturn"]
-                old_num=gs[index]["TotalSignals"]
-                gs[index]["AvgReturn"]=((old_avg*old_num)+s["ReturnsPercent"])/(old_num+1)
-                gs[index]["TotalSignals"]+=1
-                if s["Win"]:
-                    gs[index]["NumWins"]+=1
-            else:
-                gs[index]={"Indicator":"Gravestone Doji",
-                           "Variant":s["Variant"],
-                           "NumWins":int(s["Win"]),
-                           "TotalSignals":1,
-                           "AvgReturn":s["ReturnsPercent"]
-                        }
-    metrics_list=df+gs
-    for m in metrics_list:
-        m["WinRatio"]=m["NumWins"]/m["TotalSignals"]
+            results_dict[variant]["AvgReturn"]=None
+            results_dict[variant]["Median"]=None
+            results_dict[variant]["StdDev"]=None
+            results_dict[variant]["WinRatio"]=None
+            results_dict[variant]["MaxWin"]=None
+            results_dict[variant]["MaxLoss"]=None
 
-    return metrics_list
+        del results_dict[variant]["Returns"]
+    return results_dict
 
 
 #global variable for multiprocessing
@@ -412,11 +425,11 @@ def main():
     df = pd.read_csv("nifty50list.csv",encoding= 'unicode_escape')
     stock_list=df["Symbol"].values.tolist()
     st=[]
-    for i in range(3,4):
+    for i in range(3,10):
         st.append(stock_list[i])
 
     #a Dict with Data frames of all the stocks
-    stocks=csv_data(date_from='2012-01-01', stock_list=st)
+    stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)
 
     path=os.getcwd()
     path = path+ "\\backtest_results"
@@ -424,26 +437,27 @@ def main():
         os.makedirs(path)
     variants={"PTWinRatio":[1,2,3,1/2,1/3],
               "Confirmation":[True,False],
-              "SlopeDays":[5,10,15,20,30],
               "MaxShadow":[0.05,0.075,0.1,0.125,0.15],
-              "MaxBody":[0.05,0.075,0.1,0.125,0.15]
+              "MaxBody":[0.05,0.075,0.1,0.125,0.15],
+              "SLAdjuster":[0,0.01,0.02,0.03,0.04,0.05]
     }
 
     #start_time = time.time()
-    '''num_procs = multiprocessing.cpu_count()  
+    num_procs = multiprocessing.cpu_count()  
     pool = multiprocessing.Pool(num_procs-2)
     for symbol in stocks:
         pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol,variants),callback=log_result)
     #wait for them to finish
     pool.close()
-    pool.join()'''
-    for symbol in stocks:
-        signals_list.extend(backtest_stratergy(stocks[symbol],symbol,variants))
+    pool.join()
     #print("--- %s seconds ---" % (time.time() - start_time))
-    print(signals_list)
     #pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
-    #pd.DataFrame(calculate_metrics(signals_list)).to_csv(path+"\\metrics.csv", encoding='utf-8', index=False)
-    
+    result=pd.DataFrame.from_dict(calculate_metrics(signals_list, variants)).T
+    result.index.name = 'Variant'
+    result.to_csv(path+"\\metrics.csv", encoding='utf-8')
+    #
+    #Variant: [MaxShadow]/[MaxBody]/[PTWinRatio]/[SLRatio]/[Confirmation]/[Indicator]
+    #
     return 0
 
 if __name__ == '__main__':
