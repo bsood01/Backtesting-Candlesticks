@@ -106,7 +106,7 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,sl_ratio,con_req):
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
             else:
                 return None
-        signal["StopLoss"]=df.loc[date]["Low"]*(100-sl_ratio)
+        signal["StopLoss"]=df.loc[date]["Low"]*(1-sl_ratio)
         signal["TakeProfit"]=signal["EntryPrice"]+pt_ratio*(signal["EntryPrice"]-signal["StopLoss"])
         signal["Position"]="Long"
         test_long_indication(df,date,signal)
@@ -125,7 +125,7 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,sl_ratio,con_req):
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
             else:
                 return None
-        signal["StopLoss"]=df.loc[date]["High"]*(100+sl_ratio)
+        signal["StopLoss"]=df.loc[date]["High"]*(1+sl_ratio)
         signal["TakeProfit"]=signal["EntryPrice"]-pt_ratio*(signal["StopLoss"]-signal["EntryPrice"])
         signal["Position"]="Short"
         test_short_indication(df,date,signal)
@@ -380,12 +380,22 @@ def calculate_metrics(signals_list, variants_dict):
                 for sl in variants_dict["SLAdjuster"]:
                     for confirm in  variants_dict["Confirmation"]:
                         variant=str(shadow)+"/"+str(body)+"/"+str(pt_ratio)+"/"+str(sl)+"/"+str(confirm)+"/"+"Dragonfly Doji"
-                        results_dict[variant]={"NumWins":0,
+                        results_dict[variant]={"MaxShadow":shadow,
+                                            "MaxBody":body,
+                                            "PTWinRatio":pt_ratio,
+                                            "SLAdjuster":sl,
+                                            "Confirmation":confirm,
+                                            "NumWins":0,
                                             "TotalSignals":0,
                                             "Returns":[]
-                        }
+                                         }
                         variant=str(shadow)+"/"+str(body)+"/"+str(pt_ratio)+"/"+str(sl)+"/"+str(confirm)+"/"+"Gravestone Doji"
-                        results_dict[variant]={"NumWins":0,
+                        results_dict[variant]={ "MaxShadow":shadow,
+                                        "MaxBody":body,
+                                        "PTWinRatio":pt_ratio,
+                                        "SLAdjuster":sl,
+                                        "Confirmation":confirm,
+                                        "NumWins":0,
                                         "TotalSignals":0,
                                         "Returns":[]
                         }
@@ -454,7 +464,7 @@ def main():
     #pd.DataFrame(signals_list).to_csv(path+"\\results.csv", encoding='utf-8', index=False)
     result=pd.DataFrame.from_dict(calculate_metrics(signals_list, variants)).T
     result.index.name = 'Variant'
-    result.to_csv(path+"\\metrics.csv", encoding='utf-8')
+    result.to_csv(path+"\\metrics.csv", encoding='utf-8',index=False)
     #
     #Variant: [MaxShadow]/[MaxBody]/[PTWinRatio]/[SLRatio]/[Confirmation]/[Indicator]
     #
