@@ -9,8 +9,7 @@ import glob
 import multiprocessing
 import statistics
 
-from setuptools import sic
-
+date_from='2012-01-01'
 slope_days=15
 
 #takes in the array of stocks and returns a Dataframe associated with each in a dictionary
@@ -25,33 +24,25 @@ def yahoo_data(symbol, date_from, date_to):
         result[s]=df
     return result
 
-def csv_data(date_from, stock_list):
+def csv_data(symbol):
     path=os.getcwd()
     path = path+ "\\historical_data"
-    all_files = glob.glob(os.path.join(path, "*.csv"))
+    data = glob.glob(os.path.join(path, symbol+".csv"))
     #file name
     col_list=["Date","Open","High","Low","Close"]
-    result={}
-    for f in all_files:
-        #get the symbol for the dictionary to store data
-        file_name=f.split("\\")[-1]
-        symbol = file_name.split('.csv')[0]
-        if symbol in stock_list:
-            df = pd.read_csv(f,usecols=col_list)
-            #set date as index and make data frame after param date
-            df.set_index("Date",inplace = True)
-            df.index = pd.to_datetime(df.index)  
-            df=df[(df.index > date_from)]
-            #Remove rows where stock data is missing 
-            df.dropna()
-
-            result[symbol]=df
-
-
-    return result
+    #get the symbol for the dictionary to store data
+    df = pd.read_csv(data[0],usecols=col_list)
+    #set date as index and make data frame after param date
+    df.set_index("Date",inplace = True)
+    df.index = pd.to_datetime(df.index)  
+    df=df[(df.index > date_from)]
+    #Remove rows where stock data is missing 
+    df.dropna()
+    return df
 #backtest for a single stock for the indicators
-def backtest_stratergy(df,symbol,variants_dict):
+def backtest_stratergy(symbol,variants_dict):
     signals=[]
+    df=csv_data(symbol)
     test_dates=df.index.tolist()
     for date in test_dates:
         for shadow in variants_dict["MaxShadow"]:
@@ -368,8 +359,9 @@ def pretty(d, indent=0):
 
 #only the main procs writes to the signals_list
 def log_result(signals): 
-    return signals_list.extend(signals)
-   
+    if signals!=None:
+        return signals_list.extend(signals)
+    return
 
 def calculate_metrics(signals_list, variants_dict):
     results_dict={}
@@ -435,11 +427,8 @@ def main():
     df = pd.read_csv("nifty50list.csv",encoding= 'unicode_escape')
     stock_list=df["Symbol"].values.tolist()
     st=[]
-    for i in range(3,10):
+    for i in range(3,4):
         st.append(stock_list[i])
-
-    #a Dict with Data frames of all the stocks
-    stocks=csv_data(date_from='2012-01-01', stock_list=stock_list)
 
     path=os.getcwd()
     path = path+ "\\backtest_results"
@@ -455,8 +444,8 @@ def main():
     #start_time = time.time()
     num_procs = multiprocessing.cpu_count()  
     pool = multiprocessing.Pool(num_procs-2)
-    for symbol in stocks:
-        pool.apply_async(backtest_stratergy,args=(stocks[symbol],symbol,variants),callback=log_result)
+    for symbol in stock_list:
+        pool.apply_async(backtest_stratergy,args=(symbol,variants),callback=log_result)
     #wait for them to finish
     pool.close()
     pool.join()
