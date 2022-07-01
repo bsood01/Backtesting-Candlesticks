@@ -11,6 +11,8 @@ import statistics
 
 date_from='2012-01-01'
 slope_days=15
+#10 yr bond yields
+rf_return=0.0745
 
 #takes in the array of stocks and returns a Dataframe associated with each in a dictionary
 def yahoo_data(symbol, date_from, date_to):
@@ -309,6 +311,80 @@ def gravestone_doji(df, date, max_shadow, max_body):
 
     return 0
 
+#returns 1 if the candlestick is an inverted hammer
+def inverted_hammer(df, date, min_upper_shadow, max_lower_shadow, min_body ):
+
+    op=df.loc[date,'Open']
+    cl=df.loc[date,'Close']
+    hi=df.loc[date,'High']
+    lo=df.loc[date,'Low']
+    tl=total_length(df,date)
+    # upper shadow greater than min ratio (parameter) AND
+    # lower shadow missing or very short AND
+    # Body length greater than mmin ratio (parameter)
+
+    inverted_hammer=hi-max(op,cl)>tl*min_upper_shadow
+    inverted_hammer=inverted_hammer and (min(op,cl)-lo<=max_lower_shadow*tl)
+    inverted_hammer=inverted_hammer and (abs(op-cl)>tl*min_body)
+
+    return inverted_hammer
+
+#returns 1 if the candlestick is patter is 3 white soldiers 
+def three_white_soldiers(df,date,strict):
+    
+    #check for higher opens and closes on the last 3 days
+    date_3=date
+    date_2=df.index[df.index.get_loc(date)-1]
+    date_1=df.index[df.index.get_loc(date)-2]
+    higher_op_cl=df.loc[date_3]["Open"]>df.loc[date_2]["Open"] and\
+                 df.loc[date_2]["Open"]>df.loc[date_1]["Open"] and\
+                 df.loc[date_3]["Close"]>df.loc[date_2]["Close"] and\
+                 df.loc[date_2]["Close"]>df.loc[date_1]["Close"]
+
+    if not higher_op_cl:
+        return 0
+
+    tl_median=tl_median(df,date)
+    cur_date=date
+    for i in range(3):
+        op=df.loc[cur_date,'Open']
+        cl=df.loc[cur_date,'Close']
+        hi=df.loc[cur_date,'High']
+        lo=df.loc[cur_date,'Low']
+        long_white=(hi-lo)>tl_median and cl>=op
+        if not long_white:
+            return 0
+        cur_date=df.index[df.index.get_loc(cur_date)-1]
+    
+    #if candlesticks need to open within the body of prev candle
+    if strict:
+        #since we've checked for the higher open we only 
+        #need to check if it's less than close of prev day
+        cond_check=df.loc[date_3]["Open"]<=df.loc[date_2]["Close"] and\
+                    df.loc[date_2]["Open"]>df.loc[date_1]["Close"] 
+        if not cond_check:
+            return 0
+            
+    return 1
+
+#calculate total lenght of n preceding candles
+def tl_median(df,date,n=20):
+    tl_list=[]
+    cur_date=df.index[df.index.get_loc(date)-1]
+    for i in range(n):
+        if cur_date in df.index:
+            tmp_hi=df.loc[cur_date]["High"]
+            tmp_lo=df.loc[cur_date]["Low"]
+            tl_list.append(tmp_hi-tmp_lo)
+            cur_date=df.index[df.index.get_loc(cur_date)-1]
+
+    if tl_list:
+        return statistics.median(tl_list)
+
+    return 0
+
+
+
 # Return the real body of a particular date
 def real_body(data, date):
 
@@ -363,6 +439,7 @@ def log_result(signals):
         return signals_list.extend(signals)
     return
 
+#for the signals received/ calculate stocks 
 def calculate_metrics(signals_list, variants_dict):
     results_dict={}
     
@@ -408,6 +485,7 @@ def calculate_metrics(signals_list, variants_dict):
             results_dict[variant]["WinRatio"]=results_dict[variant]["NumWins"]/results_dict[variant]["TotalSignals"]
             results_dict[variant]["MaxWin"]=max(results_dict[variant]["Returns"])
             results_dict[variant]["MaxLoss"]=min(results_dict[variant]["Returns"])
+            results_dict[variant]["SharpeRatio"]=(results_dict[variant]["AvgReturn"]-rf_return)/results_dict[variant]["StdDev"]
         else:
             results_dict[variant]["AvgReturn"]=None
             results_dict[variant]["Median"]=None
@@ -415,6 +493,7 @@ def calculate_metrics(signals_list, variants_dict):
             results_dict[variant]["WinRatio"]=None
             results_dict[variant]["MaxWin"]=None
             results_dict[variant]["MaxLoss"]=None
+            results_dict[variant]["SharpeRatio"]=None
 
         del results_dict[variant]["Returns"]
     return results_dict
