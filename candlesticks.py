@@ -91,12 +91,14 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,sl_ratio,con_req):
         signal["Indicator"]="Dragonfly Doji"
         if not con_req:
             signal["EntryPrice"]=df.loc[date]["Close"]
+            signal["EntryDate"]=date
             
         #confirmation is required and check for higher open 
         else:
             next_date=df.index[df.index.get_loc(date)+1]
             if df.loc[next_date]["Open"]>df.loc[date]["Close"]:
                 signal["EntryPrice"]=df.loc[next_date]["Open"]
+                signal["EntryDate"]=next_date
             else:
                 return None
         signal["StopLoss"]=df.loc[date]["Low"]*(1-sl_ratio)
@@ -104,7 +106,6 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,sl_ratio,con_req):
         signal["Position"]="Long"
         test_long_indication(df,date,signal)
         signal["ReturnsPercent"]=(signal["ExitPrice"]-signal["EntryPrice"])/signal["EntryPrice"]
-        return signal
 
     elif indicator =="Gravestone Doji":
         signal["Date"]=date
@@ -123,9 +124,17 @@ def candlestick_indicators(df,date,symbol,indicator, pt_ratio,sl_ratio,con_req):
         signal["Position"]="Short"
         test_short_indication(df,date,signal)
         signal["ReturnsPercent"]=(signal["EntryPrice"]-signal["ExitPrice"])/signal["EntryPrice"]
-        return signal
-    return None
+    
 
+
+    days = (signal["ExitDate"]-signal["EntryDate"]).days 
+    #((1+returns)^(1/num of days) - 1)
+    if days==0:
+        signal["ReturnsPerday"]= signal["ReturnsPercent"]
+    else:
+        signal["ReturnsPerday"]=pow(signal["ReturnsPercent"]+1,1/days)-1
+    return signal
+    
 def test_long_indication(df, indication_date, signal_dict ):
     tmp_date= indication_date
     #3 months, 75 day cuttoff - conditional exit 
@@ -456,18 +465,22 @@ def calculate_metrics(signals_list, variants_dict):
                                             "Confirmation":confirm,
                                             "NumWins":0,
                                             "TotalSignals":0,
-                                            "Returns":[]
+                                            "Returns":[],
+                                            "ReturnsPerDay":[],
+                                            "Indicator":"Dragonfly Doji"
                                          }
                         variant=str(shadow)+"/"+str(body)+"/"+str(pt_ratio)+"/"+str(sl)+"/"+str(confirm)+"/"+"Gravestone Doji"
-                        results_dict[variant]={ "MaxShadow":shadow,
-                                        "MaxBody":body,
-                                        "PTWinRatio":pt_ratio,
-                                        "SLAdjuster":sl,
-                                        "Confirmation":confirm,
-                                        "NumWins":0,
-                                        "TotalSignals":0,
-                                        "Returns":[]
-                        }
+                        results_dict[variant]={"MaxShadow":shadow,
+                                            "MaxBody":body,
+                                            "PTWinRatio":pt_ratio,
+                                            "SLAdjuster":sl,
+                                            "Confirmation":confirm,
+                                            "NumWins":0,
+                                            "TotalSignals":0,
+                                            "Returns":[],
+                                            "ReturnsPerDay":[],
+                                            "Indicator":"Gravestone Doji"
+                                         }
     for signal in signals_list:
         variant=str(signal["MaxShadow"])+"/"+str(signal["MaxBody"])+"/"+\
             str(signal["PTWinRatio"])+"/"+str(signal["SLRatio"])+"/"+str(signal["Confirmation"])+"/"+signal["Indicator"]
@@ -476,26 +489,31 @@ def calculate_metrics(signals_list, variants_dict):
                 results_dict[variant]["NumWins"]+=1
             results_dict[variant]["TotalSignals"]+=1
             results_dict[variant]["Returns"].append(signal["ReturnsPercent"])
+            results_dict[variant]["ReturnsPerDay"].append(signal["ReturnsPerday"])
                 
     for variant in results_dict:
         if len(results_dict[variant]["Returns"])>=2:
             results_dict[variant]["AvgReturn"]=statistics.mean(results_dict[variant]["Returns"])
+            results_dict[variant]["AvgReturnsPerDay"]=statistics.mean(results_dict[variant]["ReturnsPerDay"])
             results_dict[variant]["Median"]=statistics.median(results_dict[variant]["Returns"])
-            results_dict[variant]["StdDev"]=statistics.stdev(results_dict[variant]["Returns"])
+            #results_dict[variant]["StdDev"]=statistics.stdev(results_dict[variant]["Returns"])
             results_dict[variant]["WinRatio"]=results_dict[variant]["NumWins"]/results_dict[variant]["TotalSignals"]
             results_dict[variant]["MaxWin"]=max(results_dict[variant]["Returns"])
             results_dict[variant]["MaxLoss"]=min(results_dict[variant]["Returns"])
-            results_dict[variant]["SharpeRatio"]=(results_dict[variant]["AvgReturn"]-rf_return)/results_dict[variant]["StdDev"]
+            #results_dict[variant]["SharpeRatio"]=(results_dict[variant]["AvgReturn"]-rf_return)/results_dict[variant]["StdDev"]
         else:
             results_dict[variant]["AvgReturn"]=None
+            results_dict[variant]["AvgReturnsPerDay"]=None
             results_dict[variant]["Median"]=None
-            results_dict[variant]["StdDev"]=None
+            #results_dict[variant]["StdDev"]=None
             results_dict[variant]["WinRatio"]=None
             results_dict[variant]["MaxWin"]=None
             results_dict[variant]["MaxLoss"]=None
-            results_dict[variant]["SharpeRatio"]=None
+            #results_dict[variant]["SharpeRatio"]=None
 
         del results_dict[variant]["Returns"]
+        del results_dict[variant]["ReturnsPerDay"]
+
     return results_dict
 
 
@@ -519,7 +537,6 @@ def main():
               "MaxBody":[0.05,0.075,0.1,0.125,0.15],
               "SLAdjuster":[0,0.01,0.02,0.03,0.04,0.05]
     }
-
     #start_time = time.time()
     num_procs = multiprocessing.cpu_count()  
     pool = multiprocessing.Pool(num_procs-2)
